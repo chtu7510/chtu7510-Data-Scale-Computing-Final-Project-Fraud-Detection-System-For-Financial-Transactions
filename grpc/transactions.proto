@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package transactions;
+
+// Transaction message
+message Transaction {
+  string TransactionID = 1;
+  double TransactionAmt = 2;
+  int32 isFraud = 3;
+  int32 card1 = 4;
+  int32 addr1 = 5;
+  int32 addr2 = 6;
+  string DeviceType = 7;
+  int64 TransactionDT = 8;
+  string currency = 9;
+  string merchant_category = 10;
+  int32 account_age_days = 11;
+}
+
+// Streaming service
+service TransactionService {
+  rpc StreamTransactions(stream Transaction) returns (Ack);
+}
+
+message Ack {
+  string message = 1;
+}
