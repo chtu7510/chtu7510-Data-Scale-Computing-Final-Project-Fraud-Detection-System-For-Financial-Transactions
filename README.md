@@ -61,11 +61,35 @@ docker-compose exec kafka kafka-console-consumer \
   --timeout-ms 5000
 ```
 
+Risk adapter:
+- Consumes `enriched-transactions`, assigns a mock hybrid score/reason, and produces to `scored-transactions` (DLQ on failure).
+- Inspect scored output:
+```bash
+docker-compose exec kafka kafka-console-consumer \
+  --bootstrap-server kafka:9092 \
+  --topic scored-transactions \
+  --from-beginning \
+  --timeout-ms 5000
+```
+
+Decision engine:
+- Consumes `scored-transactions`, applies simple thresholds to classify Allow/Hold/Decline, and emits to `decisions` (DLQ on failure).
+- Inspect decisions:
+```bash
+docker-compose exec kafka kafka-console-consumer \
+  --bootstrap-server kafka:9092 \
+  --topic decisions \
+  --from-beginning \
+  --timeout-ms 5000
+```
+
 Environment knobs (see `docker-compose.yml`):
 - `API_KEY`, `RATE_LIMIT_PER_MIN`
 - `KAFKA_BROKERS`, `KAFKA_TOPIC`, `KAFKA_DLQ_TOPIC`
 - Producer knobs: `TPS`, `NUM_WORKERS`, `TRANSPORT`, `HTTP_ENDPOINT`, `TX_HOST`, `TX_PORT`
 - Enricher knobs: `INPUT_TOPIC`, `OUTPUT_TOPIC`, `DLQ_TOPIC`, `GROUP_ID`
+- Risk adapter knobs: `INPUT_TOPIC`, `OUTPUT_TOPIC`, `DLQ_TOPIC`, `GROUP_ID`
+- Decision engine knobs: `INPUT_TOPIC`, `OUTPUT_TOPIC`, `DLQ_TOPIC`, `GROUP_ID`, `ALLOW_THRESHOLD`, `HOLD_THRESHOLD`
 
 ## TCP pipeline (manual)
 - Start server: `PYTHONPATH=. python Generators/tcp_server.py`

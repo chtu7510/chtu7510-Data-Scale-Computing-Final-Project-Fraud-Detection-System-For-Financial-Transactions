@@ -86,6 +86,38 @@ services:
       GROUP_ID: enricher-group
     command: ["python", "services/enricher.py"]
 
+  risk-adapter:
+    build:
+      context: .
+      dockerfile: Dockerfile.producer
+    depends_on:
+      - kafka
+    environment:
+      PYTHONPATH: /app
+      KAFKA_BROKERS: kafka:9092
+      INPUT_TOPIC: enriched-transactions
+      OUTPUT_TOPIC: scored-transactions
+      DLQ_TOPIC: transactions-dlq
+      GROUP_ID: risk-adapter-group
+    command: ["python", "services/risk_adapter.py"]
+
+  decision-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile.producer
+    depends_on:
+      - kafka
+    environment:
+      PYTHONPATH: /app
+      KAFKA_BROKERS: kafka:9092
+      INPUT_TOPIC: scored-transactions
+      OUTPUT_TOPIC: decisions
+      DLQ_TOPIC: transactions-dlq
+      GROUP_ID: decision-engine-group
+      ALLOW_THRESHOLD: 0.3
+      HOLD_THRESHOLD: 0.7
+    command: ["python", "services/decision_engine.py"]
+
   http-producer:
     build:
       context: .
