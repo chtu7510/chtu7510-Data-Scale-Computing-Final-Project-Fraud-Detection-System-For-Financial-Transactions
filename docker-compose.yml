@@ -1,0 +1,56 @@
+version: "3.9"
+
+services:
+  tcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.producer
+    environment:
+      PYTHONPATH: /app
+      TX_HOST: 0.0.0.0
+      TX_PORT: 5050
+    command: ["python", "Generators/tcp_server.py"]
+    ports:
+      - "5050:5050"
+
+  tcp-producer:
+    build:
+      context: .
+      dockerfile: Dockerfile.producer
+    depends_on:
+      - tcp-server
+    environment:
+      PYTHONPATH: /app
+      TX_HOST: tcp-server
+      TX_PORT: 5050
+      TPS: 50           # adjustable
+      NUM_WORKERS: 5    # adjustable
+      TRANSPORT: TCP
+    command: ["python", "Generators/tcp_client.py"]
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.producer
+    environment:
+      PYTHONPATH: /app
+      API_KEY: changeme
+      RATE_LIMIT_PER_MIN: 5000
+    command: ["uvicorn", "gateway.app:app", "--host", "0.0.0.0", "--port", "8080"]
+    ports:
+      - "8080:8080"
+
+  http-producer:
+    build:
+      context: .
+      dockerfile: Dockerfile.producer
+    depends_on:
+      - api-gateway
+    environment:
+      PYTHONPATH: /app
+      TRANSPORT: HTTP
+      HTTP_ENDPOINT: http://api-gateway:8080/transactions
+      API_KEY: changeme
+      TPS: 25
+      NUM_WORKERS: 5
+    command: ["python", "Generators/tcp_client.py"]

@@ -1,0 +1,7 @@
+pandas
+numpy
+grpcio
+grpcio-tools
+fastapi
+uvicorn
+requests

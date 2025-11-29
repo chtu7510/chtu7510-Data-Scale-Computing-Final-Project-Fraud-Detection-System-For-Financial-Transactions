@@ -5,6 +5,7 @@ import os
 import threading
 import queue
 import numpy as np
+import requests
 from utils.data_loader import (
     train_amounts, overall_fraud_ratio, account_list,
     merchant_list, device_list, location_list
@@ -18,7 +19,9 @@ HOST = os.getenv("TX_HOST", "localhost")
 PORT = int(os.getenv("TX_PORT", 5050))
 TPS = int(os.getenv("TPS", 100))            # Transactions per second
 NUM_WORKERS = int(os.getenv("NUM_WORKERS", 5))
-TRANSPORT = os.getenv("TRANSPORT", "TCP")   # "TCP" or "UDP"
+TRANSPORT = os.getenv("TRANSPORT", "TCP")   # "TCP", "UDP", or "HTTP"
+HTTP_ENDPOINT = os.getenv("HTTP_ENDPOINT", "http://localhost:8080/transactions")
+API_KEY = os.getenv("API_KEY")
 
 # =========================
 # Socket Setup
@@ -27,13 +30,13 @@ def create_socket():
     if TRANSPORT == "TCP":
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((HOST, PORT))
-    elif TRANSPORT == "UDP":
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    else:
-        raise ValueError(f"Unsupported transport: {TRANSPORT}")
-    return sock
+        return sock
+    if TRANSPORT == "UDP":
+        return socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    return None  # HTTP does not use a persistent socket
 
 sock = create_socket()
+session = requests.Session() if TRANSPORT == "HTTP" else None
 
 # =========================
 # Transaction Queue
@@ -50,8 +53,16 @@ def send_tx(tx):
     msg = json.dumps(tx) + "\n"
     if TRANSPORT == "TCP":
         sock.sendall(msg.encode())
-    else:
+    elif TRANSPORT == "UDP":
         sock.sendto(msg.encode(), (HOST, PORT))
+    elif TRANSPORT == "HTTP":
+        headers = {"Content-Type": "application/json"}
+        if API_KEY:
+            headers["x-api-key"] = API_KEY
+        # Best-effort fire-and-forget; ignore response body.
+        session.post(HTTP_ENDPOINT, data=msg, headers=headers, timeout=2)
+    else:
+        raise ValueError(f"Unsupported transport: {TRANSPORT}")
 
 # =========================
 # Worker Thread
