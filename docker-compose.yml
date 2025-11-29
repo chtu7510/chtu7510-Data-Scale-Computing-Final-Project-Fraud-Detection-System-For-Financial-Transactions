@@ -71,6 +71,21 @@ services:
     ports:
       - "8080:8080"
 
+  enricher:
+    build:
+      context: .
+      dockerfile: Dockerfile.producer
+    depends_on:
+      - kafka
+    environment:
+      PYTHONPATH: /app
+      KAFKA_BROKERS: kafka:9092
+      INPUT_TOPIC: transactions
+      OUTPUT_TOPIC: enriched-transactions
+      DLQ_TOPIC: transactions-dlq
+      GROUP_ID: enricher-group
+    command: ["python", "services/enricher.py"]
+
   http-producer:
     build:
       context: .

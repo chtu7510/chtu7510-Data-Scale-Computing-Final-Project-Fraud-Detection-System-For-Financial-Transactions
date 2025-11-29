@@ -50,10 +50,22 @@ docker-compose exec kafka kafka-console-consumer \
   --timeout-ms 5000
 ```
 
+Enricher service:
+- Runs in Compose as `enricher`, consuming `transactions`, enriching, and publishing to `enriched-transactions`, with DLQ fallback to `transactions-dlq`.
+- Inspect enriched output:
+```bash
+docker-compose exec kafka kafka-console-consumer \
+  --bootstrap-server kafka:9092 \
+  --topic enriched-transactions \
+  --from-beginning \
+  --timeout-ms 5000
+```
+
 Environment knobs (see `docker-compose.yml`):
 - `API_KEY`, `RATE_LIMIT_PER_MIN`
 - `KAFKA_BROKERS`, `KAFKA_TOPIC`, `KAFKA_DLQ_TOPIC`
 - Producer knobs: `TPS`, `NUM_WORKERS`, `TRANSPORT`, `HTTP_ENDPOINT`, `TX_HOST`, `TX_PORT`
+- Enricher knobs: `INPUT_TOPIC`, `OUTPUT_TOPIC`, `DLQ_TOPIC`, `GROUP_ID`
 
 ## TCP pipeline (manual)
 - Start server: `PYTHONPATH=. python Generators/tcp_server.py`
