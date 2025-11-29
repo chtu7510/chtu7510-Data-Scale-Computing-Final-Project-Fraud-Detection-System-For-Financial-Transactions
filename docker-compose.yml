@@ -118,6 +118,21 @@ services:
       HOLD_THRESHOLD: 0.7
     command: ["python", "services/decision_engine.py"]
 
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.producer
+    depends_on:
+      - kafka
+    environment:
+      PYTHONPATH: /app
+      KAFKA_BROKERS: kafka:9092
+      DECISIONS_TOPIC: decisions
+      MAX_RECORDS: 200
+    command: ["streamlit", "run", "dashboard/app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
+    ports:
+      - "8501:8501"
+
   http-producer:
     build:
       context: .

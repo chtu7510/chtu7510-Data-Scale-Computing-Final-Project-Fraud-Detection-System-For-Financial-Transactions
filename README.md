@@ -83,6 +83,11 @@ docker-compose exec kafka kafka-console-consumer \
   --timeout-ms 5000
 ```
 
+Dashboard:
+- Streamlit app reading the `decisions` topic; served on http://localhost:8501
+- Start with the stack: `docker-compose up -d dashboard`
+- View recent decisions in the table; shows TransactionID, decision, score, amount, buckets, reasons.
+
 Environment knobs (see `docker-compose.yml`):
 - `API_KEY`, `RATE_LIMIT_PER_MIN`
 - `KAFKA_BROKERS`, `KAFKA_TOPIC`, `KAFKA_DLQ_TOPIC`
@@ -90,6 +95,7 @@ Environment knobs (see `docker-compose.yml`):
 - Enricher knobs: `INPUT_TOPIC`, `OUTPUT_TOPIC`, `DLQ_TOPIC`, `GROUP_ID`
 - Risk adapter knobs: `INPUT_TOPIC`, `OUTPUT_TOPIC`, `DLQ_TOPIC`, `GROUP_ID`
 - Decision engine knobs: `INPUT_TOPIC`, `OUTPUT_TOPIC`, `DLQ_TOPIC`, `GROUP_ID`, `ALLOW_THRESHOLD`, `HOLD_THRESHOLD`
+- Dashboard knobs: `DECISIONS_TOPIC`, `MAX_RECORDS`
 
 ## TCP pipeline (manual)
 - Start server: `PYTHONPATH=. python Generators/tcp_server.py`
