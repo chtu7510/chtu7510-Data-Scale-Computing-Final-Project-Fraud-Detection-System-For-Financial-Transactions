@@ -5,3 +5,4 @@ grpcio-tools
 fastapi
 uvicorn
 requests
+aiokafka

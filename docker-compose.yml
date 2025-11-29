@@ -1,6 +1,30 @@
-version: "3.9"
-
 services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.3
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.3
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9092:9092"
+
   tcp-server:
     build:
       context: .
@@ -32,10 +56,17 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.producer
+    depends_on:
+      - kafka
     environment:
       PYTHONPATH: /app
       API_KEY: changeme
       RATE_LIMIT_PER_MIN: 5000
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC: transactions
+      KAFKA_DLQ_TOPIC: transactions-dlq
+      KAFKA_CONNECT_TIMEOUT_SEC: 3
+      KAFKA_SEND_TIMEOUT_SEC: 3
     command: ["uvicorn", "gateway.app:app", "--host", "0.0.0.0", "--port", "8080"]
     ports:
       - "8080:8080"

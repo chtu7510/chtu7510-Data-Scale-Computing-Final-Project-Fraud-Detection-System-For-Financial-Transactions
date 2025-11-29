@@ -1,8 +1,11 @@
+import asyncio
+import json
+import logging
 import os
 import time
-import logging
 from typing import List, Optional
 
+from aiokafka import AIOKafkaProducer
 from fastapi import FastAPI, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field, validator
 
@@ -12,9 +15,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 API_KEY = os.getenv("API_KEY", "changeme")
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "600"))  # per client
+KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "localhost:9092")
+KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "transactions")
+KAFKA_DLQ_TOPIC = os.getenv("KAFKA_DLQ_TOPIC", "transactions-dlq")
+KAFKA_CONNECT_TIMEOUT = float(os.getenv("KAFKA_CONNECT_TIMEOUT_SEC", "3.0"))
+KAFKA_SEND_TIMEOUT = float(os.getenv("KAFKA_SEND_TIMEOUT_SEC", "3.0"))
 
 # In-memory token bucket per client (IP or key). Good enough for demo purposes.
 rate_counters = {}
+producer: Optional[AIOKafkaProducer] = None
 
 
 class Transaction(BaseModel):
@@ -26,9 +35,9 @@ class Transaction(BaseModel):
     addr2: int
     DeviceType: str
     TransactionDT: int
-    currency: Optional[str]
-    merchant_category: Optional[str]
-    account_age_days: Optional[int]
+    currency: Optional[str] = None
+    merchant_category: Optional[str] = None
+    account_age_days: Optional[int] = None
 
     @validator("TransactionAmt")
     def amount_positive(cls, v):
@@ -56,12 +65,60 @@ def rate_limit(client_id: str):
     rate_counters[client_id] = bucket
 
 
-def publish_to_queue(tx: Transaction):
+async def get_producer() -> AIOKafkaProducer:
     """
-    Placeholder for routing into MQ/Kafka/PubSub. Replace with a real producer.
+    Lazily create the Kafka producer so the service can start even if Kafka is briefly unavailable.
     """
-    logger.info("Enqueue tx %s amount=%.2f", tx.TransactionID, tx.TransactionAmt)
-    # TODO: integrate with real message queue
+    global producer
+    if producer is None:
+        producer = AIOKafkaProducer(
+            bootstrap_servers=KAFKA_BROKERS,
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            linger_ms=5,
+            retry_backoff_ms=250,
+        )
+        try:
+            await asyncio.wait_for(producer.start(), timeout=KAFKA_CONNECT_TIMEOUT)
+            logger.info("Kafka producer started for brokers=%s topic=%s", KAFKA_BROKERS, KAFKA_TOPIC)
+        except Exception:
+            producer = None
+            raise
+    return producer
+
+
+async def publish_to_queue(tx: Transaction):
+    """
+    Publish a transaction to the Kafka topic; on failure, attempt DLQ then surface a 503.
+    """
+    try:
+        producer = await get_producer()
+    except Exception as exc:
+        logger.exception("Kafka producer unavailable during init")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Message queue unavailable") from exc
+
+    payload = tx.dict()
+    try:
+        await asyncio.wait_for(producer.send_and_wait(KAFKA_TOPIC, payload), timeout=KAFKA_SEND_TIMEOUT)
+        logger.info("Enqueued tx=%s amount=%.2f", tx.TransactionID, tx.TransactionAmt)
+    except Exception as exc:
+        logger.exception("Failed to publish tx=%s to topic=%s", tx.TransactionID, KAFKA_TOPIC)
+        if KAFKA_DLQ_TOPIC:
+            try:
+                dlq_payload = {"error": str(exc), "tx": payload}
+                await asyncio.wait_for(
+                    producer.send_and_wait(KAFKA_DLQ_TOPIC, dlq_payload), timeout=KAFKA_SEND_TIMEOUT
+                )
+                logger.warning("Routed tx=%s to DLQ topic=%s", tx.TransactionID, KAFKA_DLQ_TOPIC)
+            except Exception:
+                logger.exception("Failed to route tx=%s to DLQ topic=%s", tx.TransactionID, KAFKA_DLQ_TOPIC)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Message queue publish failed") from exc
+
+
+async def shutdown_producer():
+    global producer
+    if producer:
+        await producer.stop()
+        producer = None
 
 
 @app.middleware("http")
@@ -81,7 +138,19 @@ async def log_requests(request: Request, call_next):
 
 @app.get("/healthz")
 async def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "queue": "ready" if producer else "not_initialized",
+    }
+
+
+@app.on_event("startup")
+async def startup_event():
+    try:
+        await get_producer()
+    except Exception:
+        # Keep service up; requests will surface 503 until Kafka is reachable.
+        logger.exception("Kafka producer failed to start on startup")
 
 
 @app.post("/transactions")
@@ -93,5 +162,10 @@ async def ingest_transaction(
     check_api_key(x_api_key)
     client_id = x_api_key or (request.client.host if request.client else "unknown")
     rate_limit(client_id)
-    publish_to_queue(tx)
+    await publish_to_queue(tx)
     return {"status": "accepted", "id": tx.TransactionID}
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await shutdown_producer()
